@@ -203,6 +203,10 @@ func TestDecideRelayRetryReasons(t *testing.T) {
 		setup   func(*gin.Context)
 		want    PolicyDecision
 	}{
+		{name: "partial SSE response", err: upstream(http.StatusBadGateway), retries: 1, setup: func(c *gin.Context) {
+			c.SSEvent("message", "partial")
+			c.Writer.Flush()
+		}, want: PolicyDecision{Action: "stop", Reason: "response_committed", Source: "system"}},
 		{name: "retry status matched", err: upstream(http.StatusTooManyRequests), retries: 1, want: PolicyDecision{Action: "retry", Reason: "retry_status_matched", Source: "global"}},
 		{name: "status outside retry rules", err: upstream(http.StatusBadRequest), retries: 1, want: PolicyDecision{Action: "stop", Reason: "status_not_retryable", Source: "global"}},
 		{name: "attempt budget exhausted", err: upstream(http.StatusTooManyRequests), retries: 0, want: PolicyDecision{Action: "stop", Reason: "attempt_budget_exhausted", Source: "global"}},

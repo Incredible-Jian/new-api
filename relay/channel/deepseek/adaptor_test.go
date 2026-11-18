@@ -2,6 +2,10 @@ package deepseek
 
 import (
 	"fmt"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -401,4 +405,27 @@ func BenchmarkResponsesReasoningReplay(b *testing.B) {
 			})
 		}
 	}
+}
+
+func TestPilotCredentialRestrictedToOfficialChat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "credential")
+	require.NoError(t, os.WriteFile(path, []byte("synthetic-test-key"), 0600))
+	t.Setenv("DEEPSEEK_PILOT_KEY_FILE", path)
+	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{
+		ApiKey: "secret-ref:deepseek-pilot", UpstreamModelName: "deepseek-v4-pro",
+	}}
+	official, err := url.Parse("https://api.deepseek.com/v1/chat/completions")
+	require.NoError(t, err)
+	header := http.Header{}
+	adaptor := Adaptor{}
+	require.NoError(t, adaptor.SignUpstreamRequest(nil, info, http.MethodPost, official, header))
+	assert.Equal(t, "Bearer synthetic-test-key", header.Get("Authorization"))
+
+	untrusted, err := url.Parse("https://untrusted.invalid/v1/chat/completions")
+	require.NoError(t, err)
+	header = http.Header{}
+	require.Error(t, adaptor.SignUpstreamRequest(nil, info, http.MethodPost, untrusted, header))
+	info.UpstreamModelName = "unlisted"
+	require.Error(t, adaptor.SignUpstreamRequest(nil, info, http.MethodPost, official, header))
+	assert.Empty(t, header.Get("Authorization"))
 }

@@ -2,6 +2,7 @@ package model
 
 import (
 	"math"
+	"sync"
 	"testing"
 	"time"
 
@@ -72,6 +73,38 @@ func resetBatchUpdateTestState(t *testing.T) {
 			batchUpdateLocks[i].Unlock()
 		}
 	})
+}
+
+func TestConcurrentWalletReservationsRespectAvailableQuota(t *testing.T) {
+	truncateTables(t)
+	resetBatchUpdateTestState(t)
+	user := createReserveTestUser(t, 100)
+	start := make(chan struct{})
+	type outcome struct {
+		reserved bool
+		err      error
+	}
+	results := make(chan outcome, 100)
+	var workers sync.WaitGroup
+	for range cap(results) {
+		workers.Go(func() {
+			<-start
+			ok, err := TryReserveUserQuota(user.Id, 10)
+			results <- outcome{ok, err}
+		})
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+	accepted := 0
+	for result := range results {
+		require.NoError(t, result.err)
+		if result.reserved {
+			accepted++
+		}
+	}
+	assert.Equal(t, 10, accepted)
+	assert.Zero(t, getUserQuotaFromDB(t, user.Id))
 }
 
 func TestTryReserveQuotaWithoutRedis(t *testing.T) {

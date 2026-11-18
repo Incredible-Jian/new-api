@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -99,6 +101,26 @@ func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *relaycommon.RelayInfo) error {
 	channel.SetupApiRequestHeader(info, c, req)
 	req.Set("Authorization", "Bearer "+info.ApiKey)
+	return nil
+}
+
+// SignUpstreamRequest resolves the operator-mounted test credential only after
+// the adapter has selected its final destination. The database holds the reference.
+func (a *Adaptor) SignUpstreamRequest(_ *gin.Context, info *relaycommon.RelayInfo, method string, target *url.URL, header http.Header) error {
+	if info.ApiKey != "secret-ref:deepseek-pilot" {
+		return nil
+	}
+	if target == nil || method != http.MethodPost || target.String() != "https://api.deepseek.com/v1/chat/completions" || info.ChannelSetting.Proxy != "" {
+		return errors.New("invalid destination for DeepSeek pilot credential")
+	}
+	if info.UpstreamModelName != "deepseek-v4-pro" && info.UpstreamModelName != "deepseek-v4-flash" {
+		return errors.New("model outside DeepSeek pilot scope")
+	}
+	key, err := os.ReadFile(os.Getenv("DEEPSEEK_PILOT_KEY_FILE"))
+	if err != nil || len(strings.TrimSpace(string(key))) == 0 {
+		return errors.New("DeepSeek pilot credential unavailable")
+	}
+	header.Set("Authorization", "Bearer "+strings.TrimSpace(string(key)))
 	return nil
 }
 

@@ -1,0 +1,61 @@
+name: model-supply-local
+services:
+  gateway:
+    build: ../..
+    image: model-supply-local:pilot
+    pull_policy: never
+    ports:
+      - "127.0.0.1:33080:3000"
+    environment:
+      SQL_DSN: postgresql://platform:${POSTGRES_PASSWORD:?initialize local secrets}@db/platform?sslmode=disable
+      REDIS_CONN_STRING: redis://:${REDIS_PASSWORD:?initialize local secrets}@redis:6379/0
+      SESSION_SECRET: ${SESSION_SECRET:?initialize local secrets}
+      CRYPTO_SECRET: ${CRYPTO_SECRET:?initialize local secrets}
+      DEEPSEEK_PILOT_KEY_FILE: /run/pilot/deepseek
+      ERROR_LOG_ENABLED: "false"
+    tmpfs:
+      - /run/pilot:mode=0700
+    volumes:
+      - app:/data
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "/dev/null", "http://127.0.0.1:3000/api/status"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+  fixture:
+    image: oven/bun:1.4.4@sha256:1d22548f177f4ff38e0c15baa3c2c46c6c2060ba2d1bc573bb4720b407548f1d
+    command: ["bun", "/fixture/mock-upstream.js"]
+    volumes:
+      - ./mock-upstream.js:/fixture/mock-upstream.js:ro
+  db:
+    image: postgres:15-alpine@sha256:23799e521dee9265a8b388ecf3bc0f1eaa34b95be67f5a76af4f8f6adb44c720
+    environment:
+      POSTGRES_DB: platform
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?initialize local secrets}
+    volumes:
+      - postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "platform", "-d", "platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+  redis:
+    image: redis:7.4-alpine@sha256:7f7d30b7fdd09467bac58198a1f166dd69789d348d4fe859cccb20e0cf287fbe
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?initialize local secrets}
+    command: ["sh", "-ec", 'exec redis-server --appendonly yes --requirepass "$$REDIS_PASSWORD"']
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD-SHELL", 'REDISCLI_AUTH="$$REDIS_PASSWORD" redis-cli ping | grep -qx PONG']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+volumes:
+  postgres:
+  redis:
+  app:
