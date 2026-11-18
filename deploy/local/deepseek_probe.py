@@ -1,4 +1,4 @@
-"""Two bounded live calls through the loopback gateway. Requires a transient mounted credential."""
+"""Bounded live calls through the loopback gateway. Requires a transient mounted credential."""
 import json
 import secrets
 from urllib.error import HTTPError
@@ -75,5 +75,8 @@ if __name__ == "__main__":
     try:
         run()
     except HTTPError as exc:
-        message = json.load(exc).get("error", {})
-        raise SystemExit(f"Gateway returned {exc.code}: {message.get('code')}")
+        try:
+            code = json.load(exc).get("error", {}).get("code")
+        except (ValueError, AttributeError):
+            code = None
+        raise SystemExit(f"HTTP {exc.code} on {exc.url.split(BASE)[-1]} ({code or exc.reason})")
